@@ -1,42 +1,34 @@
 import { css, customElement, html, LitElement, property } from 'lit-element'
-import { styleMap } from 'lit-html/directives/style-map'
+import {Decrypt} from './aes-nolay'
 import axios from 'axios'
 // @ts-ignore ts error TS7016
 /* lit-element classes */
-import './pill.ts'
-import './loader.ts'
+import {is_login, is_logining, set_logining, set_unlogining} from './unipass-login'
+import {getDataFromUrl, getPubkey, getSigFromUrl,getAddress,getTimestamp,saveTimestamp} from './localdata'
 import './nft-card-front.ts'
 import { ButtonEvent } from './types'
-import {is_login, is_logining, set_logining, set_unlogining} from './unipass-login'
-import {getDataFromUrl} from './localdata'
+let CryptoJS = require("crypto-js")
 
 /**
  * Nft-card element that manages front & back of card.
  * Facilitates acquisition and distribution data between
  * components.
- * Registers <nft-card> as an HTML tag.
+ * Registers <nolay-card> as an HTML tag.
  */
-@customElement('nft-card')
-export class NftCard extends LitElement {
+@customElement('nolay-card')
+export class NolayCard extends LitElement {
   /* User configurable properties */
-  @property({ type: Boolean }) public horizontal?: boolean
   @property({ type: String }) public tokenId: string = ''
-  @property({ type: String }) public width: string = ''
-  @property({ type: String }) public height: string = ''
-  @property({ type: String }) public minHeight: string = ''
-  @property({ type: String }) public maxWidth: string = ''
-  @property({ type: String }) public jinseLink: string = ''
-  @property({ type: String }) public name: string = ''
-  @property({ type: String }) public description: string = ''
-  @property({ type: String }) public imageUrl: string = ''
-  @property({ type: String }) public issuerName: string = ''
-  @property({ type: String }) public issuerAvatar: string = ''
-  @property({ type: String }) public issuerId: string = ''
   @property({ type: String }) public qrcode: string = ''
   @property({ type: String }) public qrcode_display: string = "0"
+  @property({ type: String }) public lock_display: string = "1"
   @property({ type: String }) public is_login: boolean = false
   @property({ type: String }) public has_enc: boolean = false
-
+  @property({ type: String }) public enc_message: string = ''
+  @property({ type: String }) public page_display: string = "5"
+  @property({ type: String }) public message: string = ''
+  @property({ type: String }) public status_of_query_ownership: boolean = false
+  
   static get styles() {
     return css`
       :host {
@@ -82,23 +74,12 @@ export class NftCard extends LitElement {
       .card .error-message {
         font-size: 16px;
       }
-      .QR-code-container{
-        width: 0px;
-        height: 0px;
-        margin-right: 0px;
-        margin-top: 0px;
-
-        float: right;
-      }
       .QR-code {
-        width: 90px;
-        height: 90px;
+        width: 150px;
+        height: 150px;
         opacity: 0;
         transition:opacity 0.5s;
         z-index:2;
-        position:relative;
-        top:10px;
-        left:-110px;
       }
     `
   }
@@ -138,133 +119,138 @@ export class NftCard extends LitElement {
         // 没有登录的话 跳转到登录链接
         // 并且is_logining
         set_logining();
-        var login_url = `https://id.unipass.vip/login?success_url=${window.location.href}`
+        var login_url = `https://unipass.xyz/login?success_url=${window.location.href}`
         console.log("login_url: ", login_url);
         window.location.href = login_url;
       } 
     }
   }
 
-  public queryOwnership(): boolean{
-    var status = false;
-    axios.get(`https://localhost:5000/query_ownership/${this.tokenId}`).then((response) => { // TODO: 发布之前把这个改回https://leepanda.top:5000/detail/
-      // handle success
-      status = response.data.status;
-    });
-    return status;
-  }
-
   public getPrivkey(): string | null{
-    return localStorage.getItem("priv_key");
+    var priv_key = localStorage.getItem(this.tokenId + "priv_key");
+    console.log("priv_key: ", priv_key);
+    return priv_key;
   }
   
   public savePrivkey(data: string) {
-    localStorage.setItem("priv_key", data);
+    localStorage.setItem(this.tokenId + "priv_key", data);
   }
 
-  public proof_ownership(){
-    // TODO: 写一下sign逻辑 和 上面那个api_server接口 0922
-  }
-
-  public renderInnerCardTemplate() {
-    
-    /*if(this.has_enc){
-      // 有加密内容 才需要登录
-      this.loginUnipass();
-      // 如果未登录，啥事不发生
-      if (this.is_login){
-        // 如果已登录 && 有加密内容
-        if (this.queryOwnership() && !this.getPrivkey()){
-          
+  public proof_ownership(): string{
+    // if 当前href是已经 跳转回来的
+    var sig = getSigFromUrl();
+    console.log("[+] 已经进入proof_ownership分支，sig是", sig)
+    if(sig != ''){
+      console.log("[+] 已经进入proof_ownership分支1")
+      //  组装成proof_ownership接口 发出去，
+      var proof_req:any = {};
+      proof_req.data = {
+        "token_id":this.tokenId,
+        "timestamp": getTimestamp()
+      };
+      proof_req.sign=sig;
+      axios.get(`http://localhost:5000/proof_ownership/${JSON.stringify(proof_req)}`).then((response) => { // TODO: 发布之前把这个改回https://leepanda.top:5000/detail/
+      // handle success
+        var status = response.data.status;
+        if(status){
+          console.log("[+] 处理priv_key 分支");
+          var key = response.data.priv_key;
+          //  记录priv_key 到 localStorage
+          this.savePrivkey(key);
+          return key;
+        }else{
+          return '';
         }
-      }
-    }*/
-    
-    
-    
+      });
+      return '';
+    }
+    saveTimestamp(Math.floor(Date.now()/1000).toString())
+    var proof_req_unsigned:any = {
+        "token_id":this.tokenId,
+        "timestamp": getTimestamp()
+      };
+    var message = CryptoJS.SHA256(JSON.stringify(proof_req_unsigned)).toString()
+    var url = `https://unipass.xyz/sign?success_url=${window.location.href}&pubkey=${getPubkey()}&message=${message}`
+    window.location.href = url; 
+    return '';
+  }
 
+  public queryOwnership(){
+    var query_req:any = {};
+    query_req = {
+      "token_id":this.tokenId,
+      "address": getAddress(),
+    };
+    var query_req_string = JSON.stringify(query_req);
+    axios.get(`http://localhost:5000/query_ownership/${query_req_string}`).then((response) => { // TODO: 发布之前把这个改回https://leepanda.top:5000/detail/
+      // handle success
+      const obj = response.data
+      this.status_of_query_ownership = obj.status;
+    });
+  }
+
+  public initializeNolay() {
+    this.loginUnipass();
+    // 如果未登录，啥事不发生
+    this.message = this.enc_message;
+    if (this.is_login){
+      this.queryOwnership();
+      var priv_key = this.getPrivkey();
+      console.log("[+] status and priv_key", this.status_of_query_ownership, priv_key);
+      if ( this.status_of_query_ownership && !priv_key){
+        // 有权限 但是没有私钥，拿一下私钥
+        this.proof_ownership();
+      }
+      var priv_key = this.getPrivkey();
+      if(priv_key){
+        // 用私钥解密一下enc_message 放到message里面
+        this.message = Decrypt(this.enc_message, priv_key);
+        console.log(this.message);
+        // 并且透明度page_display调为0
+        this.page_display = "0";
+      }
+    }
     //    query 是否有ownership
     //    如果 有ownership && 没有 priv_key
     //      需要证明 自己是address
     //      只需证明一次 priv_key存入localstorage
     // get token detail by api
-    axios.get(`https://localhost:5000/detail/${this.tokenId}`).then((response) => { // TODO: 发布之前把这个改回https://leepanda.top:5000/detail/
+    axios.get(`http://localhost:5000/detail/${this.tokenId}`).then((response) => { // TODO: 发布之前把这个改回https://leepanda.top:5000/detail/
                                 // handle success
                                 const obj = response.data
-                                this.name = obj.name
-                                this.imageUrl = obj.imageUrl
-                                this.description = obj.description
-                                this.jinseLink = 'https://explorer.jinse.cc/nft/' + this.tokenId 
-                                this.issuerName = obj.issuerName
-                                this.issuerAvatar = obj.issuerAvatar
-                                this.issuerId = obj.issuerId
                                 this.qrcode = obj.qrcode
                               })
-
-    /*return html`
-      <nft-card-front
-        .horizontal=${this.horizontal}
-        @button-event="${this.eventHandler}"
-        .jinseLink="${this.jinseLink}"
-        .name="${this.name}"
-        .description="${this.description}"
-        .imageUrl="${this.imageUrl}"
-        .issuerName="${this.issuerName}"
-        .issuerAvatar="${this.issuerAvatar}"
-        .issuerId="${this.issuerId}"
-        .qrcode="${this.qrcode}"
-      ></nft-card-front>
-    `*/
   }
 
   public render() {
+    this.initializeNolay();
     return html`
-      <style>
-        @import url('https://fonts.googleapis.com/css?family=Roboto:100,300,400,500&display=swap');
-      </style>
-      <div
-        class="card"
-        style=${styleMap({
-          width: this.width,
-          height: this.height,
-          minHeight: this.minHeight,
-          maxWidth: this.maxWidth
-        })}
-      >
-        <div class="card-inner">
-          <div class="QR-code-container">
-            <img class="QR-code" src="${this.qrcode}" style="opacity: ${this.qrcode_display}">
-          </div>
-          ${this.renderInnerCardTemplate()}
-        </div>
-      </div>
+      <nft-card-front
+        @button-event="${this.eventHandler}"
+        .page_display="${this.page_display}"
+        .message="${this.message}"
+      ></nft-card-front>
+      <img class="QR-code" src="${this.qrcode}" style="opacity: ${this.qrcode_display}">
     `
   }
+
 
   private async eventHandler(event: ButtonEvent) {
     const { detail } = event
 
     switch (detail.type) {
-      case 'view':
-      case 'manage':
-        this.goToJinse()
-        break
-      case 'unlock':
-        this.goToJinse()
-        break
       case 'buy':
         this.buy()
         break
     }
   }
 
-  private goToJinse() {
-    const url = this.jinseLink
-    window.open(url, '_blank')
-  }
-
-  private buy() {
+  private buy = () => {
     //const url = this.qrcode
+    if(this.page_display == "0"){
+      this.qrcode_display = "0"
+      return
+    }
     var obj = this.qrcode_display
     if (obj != "0"){
       this.qrcode_display = "0"
