@@ -1,9 +1,9 @@
 import { customElement, html, LitElement, property } from 'lit-element'
 
 /* lit-element classes */
-import './info-button'
+//import './info-button-nolay'
 
-@customElement('nft-card-front')
+@customElement('nolay-card-front')
 export class NftCardFrontTemplate extends LitElement {
   @property({ type: String }) public message: string = ''
   @property({ type: String }) public page_display: string = "5"
@@ -30,7 +30,7 @@ export class NftCardFrontTemplate extends LitElement {
   }
 
   private getButtonTemplate() {
-    return html`<div class="page" style="filter: blur(${this.page_display}px);" @mouseover="${(e: any) => this.eventHandler(e, 'buy')}" @mouseout="${(e: any) => this.eventHandler(e, 'buy')}">
+    return html`<div class="page" style="filter: blur(${this.page_display}px);" @mouseover="${(e: any) => this.eventHandler(e, 'buy')}" @mouseout="${(e: any) => this.eventHandler(e, 'buy')}" @click="${(e: any) => this.eventHandler(e, 'proof')}">
         ${this.message}
       </div>`
   }

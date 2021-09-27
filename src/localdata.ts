@@ -104,12 +104,9 @@ export function getDataFromUrl(): boolean { // 这个是登录后的解析函数
 
 export function getSigFromUrl(): string { // 这个是登录后的解析函数
     const url = new URL(window.location.href);
-      console.log('getDataFromUrl--', url);
       let data = '';
       data = url.searchParams.get('unipass_ret') as string;
-      console.log("[-]", data);
       if (data == ''){
-        console.log("不是登录callback link")
         return '';
       }
       // eslint-disable-next-line @typescript-eslint/no-unsafe-call

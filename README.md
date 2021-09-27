@@ -11,7 +11,7 @@
 在你的网站 Header 中引入
 
 ```
-<script src="https://unpkg.com/mibaolabel@latest/dist/nft-card.min.js"></script>
+<script src="https://unpkg.com/nolayreading@latest/dist/nft-card.min.js"></script>
 ```
 
 然后在适当的位置插入你的 NFT 标签

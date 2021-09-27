@@ -5,7 +5,7 @@ import axios from 'axios'
 /* lit-element classes */
 import {is_login, is_logining, set_logining, set_unlogining} from './unipass-login'
 import {getDataFromUrl, getPubkey, getSigFromUrl,getAddress,getTimestamp,saveTimestamp} from './localdata'
-import './nft-card-front.ts'
+import './nolay-card-front.ts'
 import { ButtonEvent } from './types'
 let CryptoJS = require("crypto-js")
 
@@ -24,10 +24,12 @@ export class NolayCard extends LitElement {
   @property({ type: String }) public lock_display: string = "1"
   @property({ type: String }) public is_login: boolean = false
   @property({ type: String }) public has_enc: boolean = false
+  @property({ type: String }) public on_sell: boolean = true
   @property({ type: String }) public enc_message: string = ''
   @property({ type: String }) public page_display: string = "5"
   @property({ type: String }) public message: string = ''
   @property({ type: String }) public status_of_query_ownership: boolean = false
+  @property({ type: String }) public is_proofed: boolean = false
   
   static get styles() {
     return css`
@@ -93,12 +95,6 @@ export class NolayCard extends LitElement {
     `
   }
 
-  public renderLoaderTemplate() {
-    return html`
-      <loader-element></loader-element>
-    `
-  }
-
 
   public loginUnipass(){
     // 判断是否已经登录
@@ -106,29 +102,16 @@ export class NolayCard extends LitElement {
       this.is_login = true;
        // Good 
     }else{
-      // 判断是否正在登录
-      if(is_logining()){
-        //如果 正在登录，看看url链接，判断自己是不是 登录跳转回来的
-        var login_ret = getDataFromUrl();
-        if (login_ret) {
-          this.is_login = true;
-          return;
-        }
-        set_unlogining()
-      }else{
         // 没有登录的话 跳转到登录链接
         // 并且is_logining
         set_logining();
         var login_url = `https://unipass.xyz/login?success_url=${window.location.href}`
-        console.log("login_url: ", login_url);
         window.location.href = login_url;
-      } 
     }
   }
 
   public getPrivkey(): string | null{
     var priv_key = localStorage.getItem(this.tokenId + "priv_key");
-    console.log("priv_key: ", priv_key);
     return priv_key;
   }
   
@@ -136,12 +119,9 @@ export class NolayCard extends LitElement {
     localStorage.setItem(this.tokenId + "priv_key", data);
   }
 
-  public proof_ownership(): string{
-    // if 当前href是已经 跳转回来的
+  public check_sig_and_proof_ownership(): string{
     var sig = getSigFromUrl();
-    console.log("[+] 已经进入proof_ownership分支，sig是", sig)
-    if(sig != ''){
-      console.log("[+] 已经进入proof_ownership分支1")
+    if(sig != '' && !this.is_proofed){
       //  组装成proof_ownership接口 发出去，
       var proof_req:any = {};
       proof_req.data = {
@@ -149,14 +129,60 @@ export class NolayCard extends LitElement {
         "timestamp": getTimestamp()
       };
       proof_req.sign=sig;
-      axios.get(`http://localhost:5000/proof_ownership/${JSON.stringify(proof_req)}`).then((response) => { // TODO: 发布之前把这个改回https://leepanda.top:5000/detail/
+      axios.get(`https://api.nolay.tech:5000/proof_ownership/${JSON.stringify(proof_req)}`).then((response) => { // TODO: 发布之前把这个改回https://api.nolay.tech:5000/detail/
       // handle success
         var status = response.data.status;
         if(status){
-          console.log("[+] 处理priv_key 分支");
           var key = response.data.priv_key;
           //  记录priv_key 到 localStorage
           this.savePrivkey(key);
+          if(key){
+            this.is_proofed = true;
+            // 用私钥解密一下enc_message 放到message里面
+            this.message = Decrypt(this.enc_message, key);
+            console.log(this.message);
+            // 并且透明度page_display调为0
+            this.qrcode_display = "0";
+            this.page_display = "0";
+          }
+          return key;
+        }else{
+          return '';
+        }
+      });
+      return '';
+    }
+    return '';
+  }
+
+  public proof_ownership(): string{
+    // if 当前href是已经 跳转回来的
+    var sig = getSigFromUrl();
+    if(sig != ''){
+      //  组装成proof_ownership接口 发出去，
+      var proof_req:any = {};
+      proof_req.data = {
+        "token_id":this.tokenId,
+        "timestamp": getTimestamp()
+      };
+      proof_req.sign=sig;
+      axios.get(`https://api.nolay.tech:5000/proof_ownership/${JSON.stringify(proof_req)}`).then((response) => { // TODO: 发布之前把这个改回https://api.nolay.tech:5000/detail/
+      // handle success
+        var status = response.data.status;
+        if(status){
+          var key = response.data.priv_key;
+          //  记录priv_key 到 localStorage
+          this.savePrivkey(key);
+          if(key){
+            // 用私钥解密一下enc_message 放到message里面
+            this.message = Decrypt(this.enc_message, key);
+            this.enc_message = this.message;
+            this.is_proofed = true;
+            console.log(this.message);
+            // 并且透明度page_display调为0
+            this.qrcode_display = "0";
+            this.page_display = "0";
+          }
           return key;
         }else{
           return '';
@@ -182,7 +208,7 @@ export class NolayCard extends LitElement {
       "address": getAddress(),
     };
     var query_req_string = JSON.stringify(query_req);
-    axios.get(`http://localhost:5000/query_ownership/${query_req_string}`).then((response) => { // TODO: 发布之前把这个改回https://leepanda.top:5000/detail/
+    axios.get(`https://api.nolay.tech:5000/query_ownership/${query_req_string}`).then((response) => { // TODO: 发布之前把这个改回https://api.nolay.tech:5000/detail/
       // handle success
       const obj = response.data
       this.status_of_query_ownership = obj.status;
@@ -190,46 +216,61 @@ export class NolayCard extends LitElement {
   }
 
   public initializeNolay() {
-    this.loginUnipass();
+    this.message = this.enc_message
+
+    if(is_logining()){
+        //如果 正在登录，看看url链接，判断自己是不是 登录跳转回来的
+        var login_ret = getDataFromUrl();
+        if (login_ret) {
+          this.is_login = true;
+        }
+        set_unlogining()
+      }
+
+    var sig = getSigFromUrl(); // 如果是签完名回来的 直接proof
+    if(sig != '' && !this.is_proofed){
+      this.proof_ownership()
+      return
+    }
+
     // 如果未登录，啥事不发生
-    this.message = this.enc_message;
     if (this.is_login){
       this.queryOwnership();
       var priv_key = this.getPrivkey();
-      console.log("[+] status and priv_key", this.status_of_query_ownership, priv_key);
       if ( this.status_of_query_ownership && !priv_key){
         // 有权限 但是没有私钥，拿一下私钥
-        this.proof_ownership();
+        this.qrcode_display = "0";
+        this.check_sig_and_proof_ownership()
       }
       var priv_key = this.getPrivkey();
       if(priv_key){
         // 用私钥解密一下enc_message 放到message里面
         this.message = Decrypt(this.enc_message, priv_key);
+        this.enc_message = this.message;
         console.log(this.message);
         // 并且透明度page_display调为0
+        this.qrcode_display = "0";
         this.page_display = "0";
       }
     }
-    //    query 是否有ownership
-    //    如果 有ownership && 没有 priv_key
-    //      需要证明 自己是address
-    //      只需证明一次 priv_key存入localstorage
-    // get token detail by api
-    axios.get(`http://localhost:5000/detail/${this.tokenId}`).then((response) => { // TODO: 发布之前把这个改回https://leepanda.top:5000/detail/
+    axios.get(`https://api.nolay.tech:5000/detail/${this.tokenId}`).then((response) => {
                                 // handle success
                                 const obj = response.data
                                 this.qrcode = obj.qrcode
+                                if(!this.qrcode || this.qrcode == ""){
+                                  this.on_sell = false
+                                }
                               })
   }
 
   public render() {
     this.initializeNolay();
     return html`
-      <nft-card-front
+      <nolay-card-front
         @button-event="${this.eventHandler}"
         .page_display="${this.page_display}"
         .message="${this.message}"
-      ></nft-card-front>
+      ></nolay-card-front>
       <img class="QR-code" src="${this.qrcode}" style="opacity: ${this.qrcode_display}">
     `
   }
@@ -242,6 +283,8 @@ export class NolayCard extends LitElement {
       case 'buy':
         this.buy()
         break
+      case 'proof':
+        this.proof()
     }
   }
 
@@ -251,11 +294,27 @@ export class NolayCard extends LitElement {
       this.qrcode_display = "0"
       return
     }
+
+    if(!this.on_sell){
+      this.qrcode_display = "0"
+      return
+    }
+
     var obj = this.qrcode_display
     if (obj != "0"){
       this.qrcode_display = "0"
     }else{
       this.qrcode_display = "1"
+    }
+    this.render()
+  }
+
+  private proof = () => {
+    this.loginUnipass();
+    var priv_key = this.getPrivkey();
+    if ( this.status_of_query_ownership && !priv_key){
+        // 有权限 但是没有私钥，拿一下私钥
+        this.proof_ownership();
     }
     this.render()
   }
